@@ -38,7 +38,8 @@ async function sha256(message) {
   return hashHex;
 }
 
-// const truncate = (x) => x.slice(0, 5) + "…" + x.slice(x.length - 4);
+const truncateAddress = (x, a?: number, b?: number) =>
+  x.slice(0, a || 6) + "…" + x.slice(x.length - (b || 4));
 
 function LikesForEthscriptions() {
   const [minting, setMinting] = useState<boolean>(false);
@@ -222,6 +223,16 @@ function Layout({ handleConnect, account, children, hash, receipt }) {
               Read this Twitter thread about the protocol
             </a>
           </li>
+          <li>-</li>
+          <li>
+            <a
+              href="https://github.com/tunnckoCore/likes-for-ethscriptions"
+              target="_blank"
+              className="text-blue-500"
+            >
+              Source at GitHub
+            </a>
+          </li>
         </ul>
       </nav>
       <div className="mt-4 flex flex-col gap-4">
@@ -296,7 +307,194 @@ function Layout({ handleConnect, account, children, hash, receipt }) {
           </>
         )}
       </div>
+      <div className="mt-5">
+        <Stats />
+      </div>
     </div>
+  );
+}
+
+function Stats() {
+  const [params, setParams] = useState<any>();
+  const [items, setItems] = useState<any>();
+
+  useEffect(() => {
+    (async () => {
+      if (!params) return;
+
+      const query = `query MyQuery {
+        upvotes: inscriptions(
+          order_by: {
+            block_number:desc
+          }
+          where: {
+            ${
+              params.liker
+                ? `creator_address: {_iregex: "${params.liker}"},`
+                : ""
+            }
+            ${
+              params.receiver
+                ? `owner_address: {_iregex: "${params.receiver}"},`
+                : ""
+            }
+            trx_hash:{_nregex:"0xfd2b3ddd8d657d47150a705679f0d5b947baef1e7e034aa8d5ddc92d4dfacc54"}
+            mtype: {_iregex: "wgw.blue.likes${
+              params.id ? "." + params.id : ""
+            }"}}
+        ) {
+          block_number
+          ethscription_id: trx_hash
+          ethscription_number: position
+          ethscription_index: internal_trx_index
+          liker: creator_address
+          receiver: owner_address
+          created_at
+          mimetype: mtype
+        }
+      }`;
+
+      const variables = {};
+      const body = JSON.stringify({ query, variables });
+
+      const res = await fetch(
+        `https://api.evm.ink/c474f0e9-2e98-4c24-b5af-2c378f698040/v1/graphql/`,
+        {
+          method: "POST",
+          body,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      console.log(res);
+      const json = await res.json();
+      setItems(
+        json.data.upvotes.map((x) => {
+          // application/vnd.esc.wgw.blue.likes.0xc84ff4eb79b088d6a9d07f3433679ba672d98d9a42e799ec2fd4bb09ff6b8a6a+json
+          x.liked_id = x.mimetype.split(".likes.")[1].split("+json")[0];
+          return x;
+        })
+      );
+    })();
+  }, [params]);
+
+  useEffect(() => {
+    setParams(Object.fromEntries(new URLSearchParams(window.location.search)));
+  }, [window.location.search]);
+
+  if (!items) {
+    return <div>Loading...</div>;
+  }
+
+  return (
+    <>
+      {params?.liker && items?.length > 0 && (
+        <h2 className="text-2xl font-semibold">
+          Upvotes created by{" "}
+          <a
+            href={`https://ethscriptions.com/${params.liker}`}
+            className="text-blue-500"
+          >
+            {truncateAddress(params.liker)}
+          </a>
+          : {items.length}
+        </h2>
+      )}
+      {params?.receiver && items?.length > 0 && (
+        <h2 className="text-2xl font-semibold">
+          Upvotes received by{" "}
+          <a
+            href={`https://ethscriptions.com/${params.receiver}`}
+            className="text-blue-500"
+          >
+            {truncateAddress(params.receiver)}
+          </a>
+          : {items.length}
+        </h2>
+      )}
+      {!params?.liker && !params?.receiver ? (
+        <h2 className="text-2xl font-semibold">
+          Total upvotes to date: {items.length}
+        </h2>
+      ) : (
+        <nav className="mt-2">
+          <ul className="flex gap-2">
+            <li>
+              <a href="?ref" className="text-blue-500">
+                All recent upvotes
+              </a>
+            </li>
+            <li>-</li>
+            <li>
+              <a
+                href={params.receiver ? "#" : `?receiver=${params.liker}`}
+                className="text-blue-500"
+              >
+                Upvotes received
+              </a>
+            </li>
+            <li>-</li>
+            <li>
+              <a
+                href={params.liker ? "#" : `?liker=${params.receiver}`}
+                className="text-blue-500"
+              >
+                Upvotes created
+              </a>
+            </li>
+          </ul>
+        </nav>
+      )}
+
+      <table className="table-auto w-full mt-4">
+        <thead>
+          <tr>
+            <th className="px-4 py-2">Liker</th>
+            <th className="px-4 py-2">Receiver</th>
+            <th className="px-4 py-2">Liked Ethscription</th>
+            <th className="px-4 py-2">Created At</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items?.map((x) => (
+            <tr key={x.ethscription_id}>
+              <td className="border px-4 py-2">
+                <a href={`/?liker=${x.liker}`} className="text-blue-500">
+                  {truncateAddress(x.liker)}
+                </a>
+              </td>
+              <td className="border px-4 py-2">
+                <a href={`/?receiver=${x.receiver}`} className="text-blue-500">
+                  {truncateAddress(x.receiver)}
+                </a>
+              </td>
+              <td className="border px-4 py-2">
+                <a
+                  href={`https://ethscriptions.com/ethscriptions/${x.liked_id}`}
+                  className="text-blue-500"
+                  target="_blank"
+                >
+                  {truncateAddress(x.liked_id, 8, 8)}
+                </a>
+              </td>
+              <td className="border px-4 py-2">
+                <a
+                  href={`https://etherscan.io/tx/${x.ethscription_id}`}
+                  className="text-blue-500"
+                  target="_blank"
+                >
+                  {x.created_at
+                    .slice(0, x.created_at.indexOf("+"))
+                    .replace("T", ", ")}
+                </a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }
 
